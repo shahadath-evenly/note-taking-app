@@ -24,10 +24,16 @@ export default function RootLayout({ children }) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-zinc-50 dark:bg-black">
+      <body className="flex h-screen flex-col overflow-hidden bg-zinc-50 dark:bg-black">
         <AuthProvider>
           <Navbar />
-          <main className="flex flex-1 flex-col">{children}</main>
+          {/* min-h-0 is required for a flex child to be allowed to shrink
+              below its content size — without it, a page that wants its
+              own internal independently-scrolling regions (e.g. /notes)
+              would instead just grow main/body and scroll the whole
+              document. Pages that don't need that just render normally and
+              scroll inside main like before. */}
+          <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
         </AuthProvider>
       </body>
     </html>

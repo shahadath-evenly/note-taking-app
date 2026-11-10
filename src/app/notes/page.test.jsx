@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import NotesPage from './page';
 import * as notesService from '@/services/notes/notes.service';
@@ -15,12 +15,13 @@ vi.mock('@/context/AuthContext', () => ({
 
 vi.mock('@/services/notes/notes.service');
 
-const sampleNote = { _id: '1', title: 'First note', content: 'First content', createdAt: '2024-01-01T00:00:00.000Z' };
+const noteA = { _id: '1', title: 'First note', content: 'First content', createdAt: '2024-01-02T00:00:00.000Z' };
+const noteB = { _id: '2', title: 'Second note', content: 'Second content', createdAt: '2024-01-01T00:00:00.000Z' };
 
 function mockList(overrides = {}) {
   notesService.listNotes.mockResolvedValue({
-    data: [sampleNote],
-    pagination: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    data: [noteA, noteB],
+    pagination: { page: 1, limit: 50, total: 2, totalPages: 1 },
     ...overrides,
   });
 }
@@ -30,119 +31,139 @@ beforeEach(() => {
   mockList();
 });
 
-describe('NotesPage: list, loading, empty, error', () => {
-  it('lists the current user\'s notes from the backend with default paging params', async () => {
+describe('NotesPage: list and selection', () => {
+  it('lists the user\'s notes and shows a placeholder until one is selected', async () => {
     render(<NotesPage />);
 
     expect(await screen.findByText('First note')).toBeInTheDocument();
+    expect(screen.getByText('Second note')).toBeInTheDocument();
+    expect(screen.getByText('Select a note, or create a new one.')).toBeInTheDocument();
     expect(notesService.listNotes).toHaveBeenCalledWith(
-      expect.objectContaining({ page: 1, limit: 10 }),
+      expect.objectContaining({ page: 1, limit: 50 }),
       'fake-token'
     );
   });
 
-  it('shows a loading state before the first response arrives', () => {
-    let resolveFn;
-    notesService.listNotes.mockReturnValue(
-      new Promise((resolve) => {
-        resolveFn = resolve;
-      })
-    );
-
+  it('selecting a note shows its full content in the editor (view requirement)', async () => {
+    const user = userEvent.setup();
     render(<NotesPage />);
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
-    resolveFn({ data: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0 } });
+    await screen.findByText('First note');
+
+    await user.click(screen.getByText('First note'));
+
+    expect(screen.getByLabelText('Title')).toHaveValue('First note');
+    expect(screen.getByLabelText('Content')).toHaveValue('First content');
   });
 
   it('shows an empty-state message when there are no notes', async () => {
-    mockList({ data: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0 } });
+    mockList({ data: [], pagination: { page: 1, limit: 50, total: 0, totalPages: 0 } });
     render(<NotesPage />);
-
-    expect(await screen.findByText('You have no notes yet. Create your first one!')).toBeInTheDocument();
+    expect(await screen.findByText('No notes found.')).toBeInTheDocument();
   });
 
   it('shows the backend error message when loading fails', async () => {
     notesService.listNotes.mockRejectedValue(new ApiClientError(500, 'Server exploded'));
     render(<NotesPage />);
-
     expect(await screen.findByText('Server exploded')).toBeInTheDocument();
   });
 });
 
-describe('NotesPage: create', () => {
-  it('creates a note through the form and refreshes the list from the backend', async () => {
+describe('NotesPage: create (draft flow)', () => {
+  it('"New note" opens an empty, editable draft with Create note disabled until a title is typed', async () => {
     const user = userEvent.setup();
-    notesService.createNote.mockResolvedValue({ data: { ...sampleNote, _id: '2', title: 'New note' } });
-
     render(<NotesPage />);
     await screen.findByText('First note');
 
     await user.click(screen.getByRole('button', { name: 'New note' }));
-    await user.type(screen.getByLabelText('Title'), 'New note');
-    await user.type(screen.getByLabelText('Content'), 'New content');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
 
-    await waitFor(() =>
-      expect(notesService.createNote).toHaveBeenCalledWith({ title: 'New note', content: 'New content' }, 'fake-token')
-    );
-    // Initial load + the refetch triggered after a successful create.
-    expect(notesService.listNotes).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText('Title')).toHaveValue('');
+    expect(screen.getByLabelText('Content')).toHaveValue('');
+    const createButton = screen.getByRole('button', { name: 'Create note' });
+    expect(createButton).toBeDisabled();
+
+    await user.type(screen.getByLabelText('Title'), 'New note title');
+    expect(createButton).toBeEnabled();
   });
 
-  it('shows a validation error and never calls the API when the form is submitted empty', async () => {
+  it('creates the note with empty content when only a title is given, and selects it', async () => {
+    const user = userEvent.setup();
+    const createdNote = { _id: '3', title: 'Title only', content: '', createdAt: '2024-01-03T00:00:00.000Z' };
+    notesService.createNote.mockResolvedValue({ data: createdNote });
+
+    render(<NotesPage />);
+    await screen.findByText('First note');
+
+    await user.click(screen.getByRole('button', { name: 'New note' }));
+    await user.type(screen.getByLabelText('Title'), 'Title only');
+    await user.click(screen.getByRole('button', { name: 'Create note' }));
+
+    await waitFor(() =>
+      expect(notesService.createNote).toHaveBeenCalledWith({ title: 'Title only', content: '' }, 'fake-token')
+    );
+    // The new note is prepended to the list without a full refetch.
+    expect(await screen.findAllByText('Title only')).not.toHaveLength(0);
+  });
+
+  it('the draft is not persisted until Create note is clicked', async () => {
     const user = userEvent.setup();
     render(<NotesPage />);
     await screen.findByText('First note');
 
     await user.click(screen.getByRole('button', { name: 'New note' }));
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.type(screen.getByLabelText('Title'), 'Not saved yet');
 
-    expect(await screen.findByText('Title is required')).toBeInTheDocument();
     expect(notesService.createNote).not.toHaveBeenCalled();
+  });
+
+  it('clicking "New note" again while an unsaved draft is in progress resets to a blank draft', async () => {
+    const user = userEvent.setup();
+    render(<NotesPage />);
+    await screen.findByText('First note');
+
+    await user.click(screen.getByRole('button', { name: 'New note' }));
+    await user.type(screen.getByLabelText('Title'), 'Abandoned draft text');
+
+    await user.click(screen.getByRole('button', { name: 'New note' }));
+
+    expect(screen.getByLabelText('Title')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Create note' })).toBeDisabled();
   });
 });
 
-describe('NotesPage: view/edit', () => {
-  it('opens the edit form pre-filled with the full note content (satisfies the view requirement)', async () => {
+describe('NotesPage: update', () => {
+  it('Update is disabled until the content changes, then saves', async () => {
     const user = userEvent.setup();
-    render(<NotesPage />);
-    await screen.findByText('First note');
-
-    await user.click(screen.getByText('Edit'));
-
-    expect(await screen.findByLabelText('Title')).toHaveValue('First note');
-    expect(screen.getByLabelText('Content')).toHaveValue('First content');
-  });
-
-  it('submits the edited values to the backend and refreshes the list', async () => {
-    const user = userEvent.setup();
-    notesService.updateNote.mockResolvedValue({ data: { ...sampleNote, title: 'Updated title' } });
+    notesService.updateNote.mockResolvedValue({ data: { ...noteA, title: 'First note', content: 'Edited content' } });
 
     render(<NotesPage />);
     await screen.findByText('First note');
+    await user.click(screen.getByText('First note'));
 
-    await user.click(screen.getByText('Edit'));
-    const titleInput = await screen.findByLabelText('Title');
-    await user.clear(titleInput);
-    await user.type(titleInput, 'Updated title');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    const updateButton = screen.getByRole('button', { name: 'Update' });
+    expect(updateButton).toBeDisabled();
+
+    const contentInput = screen.getByLabelText('Content');
+    await user.type(contentInput, ' more');
+    expect(updateButton).toBeEnabled();
+
+    await user.click(updateButton);
 
     await waitFor(() =>
       expect(notesService.updateNote).toHaveBeenCalledWith(
         '1',
-        { title: 'Updated title', content: 'First content' },
+        { title: 'First note', content: 'First content more' },
         'fake-token'
       )
     );
-    expect(notesService.listNotes).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('NotesPage: delete', () => {
-  it('asks for confirmation before deleting, and does not call the API on cancel', async () => {
+  it('asks for confirmation and does not call the API on cancel', async () => {
     const user = userEvent.setup();
     render(<NotesPage />);
     await screen.findByText('First note');
+    await user.click(screen.getByText('First note'));
 
     await user.click(screen.getByText('Delete'));
     const dialog = await screen.findByRole('dialog');
@@ -152,58 +173,63 @@ describe('NotesPage: delete', () => {
     expect(notesService.deleteNote).not.toHaveBeenCalled();
   });
 
-  it('deletes the note after confirmation and refreshes the list', async () => {
+  it('deletes after confirmation and clears the editor', async () => {
     const user = userEvent.setup();
     notesService.deleteNote.mockResolvedValue({});
 
     render(<NotesPage />);
     await screen.findByText('First note');
+    await user.click(screen.getByText('First note'));
 
     await user.click(screen.getByText('Delete'));
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(notesService.deleteNote).toHaveBeenCalledWith('1', 'fake-token'));
+    expect(screen.getByText('Select a note, or create a new one.')).toBeInTheDocument();
   });
 });
 
-describe('NotesPage: pagination and search', () => {
-  it('requests the next page from the backend while preserving the rest of the query', async () => {
+describe('NotesPage: pagination (load more) and search', () => {
+  it('shows "Load more" only when another page exists, and appends results on click', async () => {
     const user = userEvent.setup();
-    mockList({ pagination: { page: 1, limit: 10, total: 25, totalPages: 3 } });
+    mockList({ pagination: { page: 1, limit: 50, total: 100, totalPages: 2 } });
 
     render(<NotesPage />);
     await screen.findByText('First note');
 
-    await user.click(screen.getByRole('button', { name: 'Next' }));
+    const noteC = { _id: '3', title: 'Third note', content: 'c', createdAt: '2024-01-03T00:00:00.000Z' };
+    notesService.listNotes.mockResolvedValueOnce({
+      data: [noteC],
+      pagination: { page: 2, limit: 50, total: 100, totalPages: 2 },
+    });
 
-    await waitFor(() =>
-      expect(notesService.listNotes).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }), 'fake-token')
-    );
+    await user.click(screen.getByText('Load more'));
+
+    expect(await screen.findByText('Third note')).toBeInTheDocument();
+    // The original notes are still present — appended, not replaced.
+    expect(screen.getByText('First note')).toBeInTheDocument();
+    expect(notesService.listNotes).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }), 'fake-token');
   });
 
-  describe('search', () => {
-    it('debounces search input and calls the backend with the search term, resetting to page 1', async () => {
-      render(<NotesPage />);
-      // Resolve the initial load with real timers first — switching to fake
-      // timers before this would hang testing-library's own internal
-      // polling, which relies on real timers.
-      await screen.findByText('First note');
+  it('searching calls the backend with the search term (server-side, not a local filter)', async () => {
+    render(<NotesPage />);
+    await screen.findByText('First note');
 
-      vi.useFakeTimers();
-      try {
-        fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'grocery' } });
-        await vi.advanceTimersByTimeAsync(400);
-      } finally {
-        vi.useRealTimers();
-      }
+    const { fireEvent } = await import('@testing-library/react');
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(screen.getByLabelText('Search notes'), { target: { value: 'grocery' } });
+      await vi.advanceTimersByTimeAsync(400);
+    } finally {
+      vi.useRealTimers();
+    }
 
-      await waitFor(() =>
-        expect(notesService.listNotes).toHaveBeenLastCalledWith(
-          expect.objectContaining({ search: 'grocery', page: 1 }),
-          'fake-token'
-        )
-      );
-    });
+    await waitFor(() =>
+      expect(notesService.listNotes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: 'grocery', page: 1 }),
+        'fake-token'
+      )
+    );
   });
 });

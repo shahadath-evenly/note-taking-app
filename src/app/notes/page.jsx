@@ -2,54 +2,57 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import RequireAuth from '@/components/auth/RequireAuth';
-import Table from '@/components/common/Table/Table';
-import Modal from '@/components/common/Modal';
+import NotesList from '@/components/notes/NotesList';
+import NoteEditor from '@/components/notes/NoteEditor';
 import ConfirmDialog from '@/components/common/ConfirmDialog';
-import Button from '@/components/forms/Button';
-import NoteRow from '@/components/rows/NoteRow';
-import NoteForm from '@/components/notes/NoteForm';
 import { useAuth } from '@/context/AuthContext';
 import { ApiClientError } from '@/lib/ApiClientError';
 import * as notesService from '@/services/notes/notes.service';
 
-const COLUMNS = [
-  { key: 'title', label: 'Title', sortable: true },
-  { key: 'content', label: 'Content' },
-  { key: 'createdAt', label: 'Created', sortable: true },
-  { key: 'actions', label: 'Actions' },
-];
-
-const DEFAULT_QUERY = { page: 1, limit: 10, search: '', sortBy: '', sortOrder: 'desc' };
-const DEFAULT_PAGINATION = { page: 1, limit: 10, total: 0, totalPages: 0 };
+const PAGE_LIMIT = 50;
+const DRAFT_NOTE = Object.freeze({ title: '', content: '' });
+const DEFAULT_PAGINATION = { page: 1, limit: PAGE_LIMIT, total: 0, totalPages: 0 };
 
 function NotesPageContent() {
   const { token } = useAuth();
 
-  const [query, setQuery] = useState(DEFAULT_QUERY);
   const [notes, setNotes] = useState([]);
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
-  // 'create' | a note object being edited | null
-  const [formTarget, setFormTarget] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [isCreatingDraft, setIsCreatingDraft] = useState(false);
+  // Bumped on every "New note" click so NoteEditor's `key` always changes
+  // even if the previous draft was never saved — otherwise clicking "New
+  // note" again while already drafting would reuse the same 'draft' key,
+  // NoteEditor wouldn't remount, and the stale unsaved title/content would
+  // stick around instead of resetting to blank.
+  const [draftVersion, setDraftVersion] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
+
   const [noteToDelete, setNoteToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
 
   // Guards against an older, slower request overwriting a newer one's
-  // result (e.g. a fast page click right after a slow search request).
+  // result (e.g. a fast search edit right after a slow one).
   const latestRequestId = useRef(0);
 
-  const fetchNotes = useCallback(
-    async (currentQuery) => {
+  const fetchFirstPage = useCallback(
+    async (currentSearch) => {
       const requestId = latestRequestId.current + 1;
       latestRequestId.current = requestId;
 
       setLoading(true);
       setLoadError(null);
       try {
-        const response = await notesService.listNotes(currentQuery, token);
+        const response = await notesService.listNotes(
+          { page: 1, limit: PAGE_LIMIT, search: currentSearch, sortBy: 'createdAt', sortOrder: 'desc' },
+          token
+        );
         if (latestRequestId.current !== requestId) {
           return;
         }
@@ -71,19 +74,61 @@ function NotesPageContent() {
 
   useEffect(() => {
     async function run() {
-      await fetchNotes(query);
+      await fetchFirstPage(search);
     }
     run();
-  }, [query, fetchNotes]);
+  }, [search, fetchFirstPage]);
 
-  async function handleFormSubmit(values) {
-    if (formTarget === 'create') {
-      await notesService.createNote(values, token);
-    } else {
-      await notesService.updateNote(formTarget._id, values, token);
+  async function handleLoadMore() {
+    setIsLoadingMore(true);
+    setLoadError(null);
+    try {
+      const nextPage = pagination.page + 1;
+      const response = await notesService.listNotes(
+        { page: nextPage, limit: PAGE_LIMIT, search, sortBy: 'createdAt', sortOrder: 'desc' },
+        token
+      );
+      setNotes((prev) => [...prev, ...response.data]);
+      setPagination(response.pagination);
+    } catch (error) {
+      setLoadError(error instanceof ApiClientError ? error.message : 'Failed to load more notes.');
+    } finally {
+      setIsLoadingMore(false);
     }
-    setFormTarget(null);
-    fetchNotes(query);
+  }
+
+  function handleSelect(note) {
+    setIsCreatingDraft(false);
+    setSelectedId(note._id);
+  }
+
+  function handleCreateDraft() {
+    setIsCreatingDraft(true);
+    setSelectedId(null);
+    setDraftVersion((version) => version + 1);
+  }
+
+  async function handleSaveDraft(values) {
+    setIsSaving(true);
+    try {
+      const response = await notesService.createNote(values, token);
+      setNotes((prev) => [response.data, ...prev]);
+      setPagination((prev) => ({ ...prev, total: prev.total + 1 }));
+      setIsCreatingDraft(false);
+      setSelectedId(response.data._id);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleUpdateNote(values) {
+    setIsSaving(true);
+    try {
+      const response = await notesService.updateNote(selectedId, values, token);
+      setNotes((prev) => prev.map((note) => (note._id === selectedId ? response.data : note)));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleConfirmDelete() {
@@ -91,15 +136,12 @@ function NotesPageContent() {
     setDeleteError(null);
     try {
       await notesService.deleteNote(noteToDelete._id, token);
-      setNoteToDelete(null);
-
-      // If this was the only item on a page beyond the first, step back a
-      // page instead of showing an now-empty page.
-      if (notes.length === 1 && query.page > 1) {
-        setQuery((prev) => ({ ...prev, page: prev.page - 1 }));
-      } else {
-        fetchNotes(query);
+      setNotes((prev) => prev.filter((note) => note._id !== noteToDelete._id));
+      setPagination((prev) => ({ ...prev, total: Math.max(prev.total - 1, 0) }));
+      if (selectedId === noteToDelete._id) {
+        setSelectedId(null);
       }
+      setNoteToDelete(null);
     } catch (error) {
       setDeleteError(error instanceof ApiClientError ? error.message : 'Failed to delete the note.');
     } finally {
@@ -107,39 +149,35 @@ function NotesPageContent() {
     }
   }
 
-  return (
-    <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-10">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">My Notes</h1>
-        <Button onClick={() => setFormTarget('create')}>New note</Button>
-      </div>
+  const selectedNote = isCreatingDraft ? DRAFT_NOTE : notes.find((note) => note._id === selectedId) || null;
 
-      <Table
-        columns={COLUMNS}
-        rows={notes}
-        RowComponent={NoteRow}
-        rowProps={{ onEdit: setFormTarget, onDelete: setNoteToDelete }}
-        pagination={pagination}
-        query={query}
-        onQueryChange={setQuery}
+  return (
+    <div className="flex h-full overflow-hidden">
+      <NotesList
+        notes={notes}
+        selectedId={isCreatingDraft ? null : selectedId}
+        onSelect={handleSelect}
+        onCreateDraft={handleCreateDraft}
+        search={search}
+        onSearch={setSearch}
         loading={loading}
         error={loadError}
-        emptyMessage="You have no notes yet. Create your first one!"
+        hasMore={pagination.page < pagination.totalPages}
+        onLoadMore={handleLoadMore}
+        isLoadingMore={isLoadingMore}
       />
 
-      <Modal
-        isOpen={Boolean(formTarget)}
-        onClose={() => setFormTarget(null)}
-        title={formTarget === 'create' ? 'New note' : 'Edit note'}
-      >
-        <NoteForm
-          key={formTarget === 'create' ? 'create' : formTarget?._id}
-          initialValues={formTarget && formTarget !== 'create' ? formTarget : null}
-          onSubmit={handleFormSubmit}
-          onCancel={() => setFormTarget(null)}
-          submitLabel={formTarget === 'create' ? 'Create' : 'Save changes'}
+      <div className="w-4/5">
+        <NoteEditor
+          key={isCreatingDraft ? `draft-${draftVersion}` : selectedId || 'none'}
+          note={selectedNote}
+          isDraft={isCreatingDraft}
+          onSave={isCreatingDraft ? handleSaveDraft : handleUpdateNote}
+          onDelete={setNoteToDelete}
+          isSaving={isSaving}
+          isDeleting={isDeleting}
         />
-      </Modal>
+      </div>
 
       <ConfirmDialog
         isOpen={Boolean(noteToDelete)}
