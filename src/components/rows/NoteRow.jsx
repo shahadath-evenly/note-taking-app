@@ -1,9 +1,13 @@
 // Used for both the owner-scoped "My Notes" list and the admin all-notes
 // list. The admin listing's notes carry an extra `owner` summary; this row
 // shows that column only when it's present, instead of needing a second,
-// near-duplicate row component just for the admin view.
-export default function NoteRow({ row }) {
+// near-duplicate row component just for the admin view. Likewise, the
+// actions cell (edit/delete) only renders when the calling page passes
+// those callbacks via `rowProps` on <Table> — the read-only admin view
+// simply won't pass them.
+export default function NoteRow({ row, onEdit, onDelete }) {
   const hasOwner = Boolean(row.owner);
+  const hasActions = Boolean(onEdit || onDelete);
 
   return (
     <tr>
@@ -17,6 +21,26 @@ export default function NoteRow({ row }) {
       <td className="px-3 py-2 text-zinc-500 dark:text-zinc-500">
         {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : '—'}
       </td>
+      {hasActions ? (
+        <td className="px-3 py-2">
+          <div className="flex gap-3">
+            {onEdit ? (
+              <button type="button" onClick={() => onEdit(row)} className="text-primary hover:underline">
+                Edit
+              </button>
+            ) : null}
+            {onDelete ? (
+              <button
+                type="button"
+                onClick={() => onDelete(row)}
+                className="text-red-600 hover:underline dark:text-red-400"
+              >
+                Delete
+              </button>
+            ) : null}
+          </div>
+        </td>
+      ) : null}
     </tr>
   );
 }

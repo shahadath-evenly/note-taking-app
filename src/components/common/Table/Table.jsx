@@ -18,6 +18,7 @@ export default function Table({
   columns,
   rows = [],
   RowComponent,
+  rowProps = {},
   pagination = DEFAULT_PAGINATION,
   query = {},
   onQueryChange,
@@ -78,7 +79,7 @@ export default function Table({
             {stateStatus ? (
               <TableStates status={stateStatus} message={error || emptyMessage} columnCount={columns.length} />
             ) : (
-              rows.map((row) => <RowComponent key={row._id || row.id} row={row} />)
+              rows.map((row) => <RowComponent key={row._id || row.id} row={row} {...rowProps} />)
             )}
           </tbody>
         </table>
