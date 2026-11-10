@@ -8,6 +8,7 @@ import { registerSchema } from '@/validations/auth/register.schema';
 import { validateForm } from '@/lib/validateForm';
 import { ApiClientError } from '@/lib/ApiClientError';
 import FormField from '@/components/forms/FormField';
+import PasswordField from '@/components/forms/PasswordField';
 import Button from '@/components/forms/Button';
 import ErrorMessage from '@/components/common/ErrorMessage';
 import Spinner from '@/components/common/Spinner';
@@ -82,10 +83,9 @@ export default function RegisterPage() {
           onChange={handleChange}
           error={fieldErrors.email}
         />
-        <FormField
+        <PasswordField
           label="Password"
           name="password"
-          type="password"
           autoComplete="new-password"
           value={form.password}
           onChange={handleChange}

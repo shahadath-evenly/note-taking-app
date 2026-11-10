@@ -31,6 +31,11 @@ describe('CreatePostForm', () => {
     expect(screen.getByLabelText('Content')).toHaveValue('');
   });
 
+  it('caps the title input at 150 characters', () => {
+    render(<CreatePostForm onSubmit={vi.fn()} />);
+    expect(screen.getByLabelText('Title')).toHaveAttribute('maxLength', '150');
+  });
+
   it('shows the backend error message when submission fails, keeping the entered values', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockRejectedValue(new ApiClientError(500, 'Server exploded'));

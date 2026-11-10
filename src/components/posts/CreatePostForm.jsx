@@ -10,6 +10,7 @@ import ErrorMessage from '@/components/common/ErrorMessage';
 import Spinner from '@/components/common/Spinner';
 
 const BLANK_FORM = { title: '', content: '' };
+const TITLE_MAX_LENGTH = 150;
 
 export default function CreatePostForm({ onSubmit }) {
   const [form, setForm] = useState(BLANK_FORM);
@@ -49,7 +50,14 @@ export default function CreatePostForm({ onSubmit }) {
       className="flex flex-col gap-3 rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
       noValidate
     >
-      <FormField label="Title" name="title" value={form.title} onChange={handleChange} error={fieldErrors.title} />
+      <FormField
+        label="Title"
+        name="title"
+        maxLength={TITLE_MAX_LENGTH}
+        value={form.title}
+        onChange={handleChange}
+        error={fieldErrors.title}
+      />
       <FormField
         label="Content"
         name="content"
