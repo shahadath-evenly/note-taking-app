@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
@@ -26,7 +27,14 @@ export default function RootLayout({ children }) {
     >
       <body className="flex h-screen flex-col overflow-hidden bg-zinc-50 dark:bg-black">
         <AuthProvider>
-          <Navbar />
+          {/* Navbar reads the current pathname (to highlight the active
+              link). For a route with a dynamic segment not covered by
+              generateStaticParams (e.g. /users/[userId]/posts), that value
+              isn't known at prerender time, so the hook suspends — this
+              boundary lets the rest of the static shell render regardless. */}
+          <Suspense fallback={null}>
+            <Navbar />
+          </Suspense>
           {/* min-h-0 is required for a flex child to be allowed to shrink
               below its content size — without it, a page that wants its
               own internal independently-scrolling regions (e.g. /notes)
