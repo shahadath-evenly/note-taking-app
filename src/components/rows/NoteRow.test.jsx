@@ -30,6 +30,11 @@ describe('NoteRow', () => {
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
   });
 
+  it('shows an owner column with a fallback when the owning user was deleted (owner: null)', () => {
+    renderRow({ _id: '1', title: 'T', content: 'C', owner: null, createdAt: '2024-01-01T00:00:00.000Z' });
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
   it('shows no actions when neither onEdit nor onDelete is passed', () => {
     renderRow({ _id: '1', title: 'T', content: 'C' });
     expect(screen.queryByText('Edit')).not.toBeInTheDocument();
