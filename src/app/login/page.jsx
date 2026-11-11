@@ -1,18 +1,18 @@
-'use client';
+"use client";
 
-import { Suspense, useState } from 'react';
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { loginSchema } from '@/validations/auth/login.schema';
-import { validateForm } from '@/lib/validateForm';
-import { ApiClientError } from '@/lib/ApiClientError';
-import { ROLES } from '@/constants/roles';
-import FormField from '@/components/forms/FormField';
-import PasswordField from '@/components/forms/PasswordField';
-import Button from '@/components/forms/Button';
-import ErrorMessage from '@/components/common/ErrorMessage';
-import Spinner from '@/components/common/Spinner';
+import { Suspense, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { loginSchema } from "@/validations/auth/login.schema";
+import { validateForm } from "@/lib/validateForm";
+import { ApiClientError } from "@/lib/ApiClientError";
+import { ROLES } from "@/constants/roles";
+import FormField from "@/components/forms/FormField";
+import PasswordField from "@/components/forms/PasswordField";
+import Button from "@/components/forms/Button";
+import ErrorMessage from "@/components/common/ErrorMessage";
+import Spinner from "@/components/common/Spinner";
 
 export default function LoginPage() {
   return (
@@ -26,9 +26,9 @@ function LoginForm() {
   const { login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const justRegistered = searchParams.get('registered') === '1';
+  const justRegistered = searchParams.get("registered") === "1";
 
-  const [form, setForm] = useState({ email: '', password: '' });
+  const [form, setForm] = useState({ email: "", password: "" });
   const [fieldErrors, setFieldErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,9 +51,15 @@ function LoginForm() {
     setIsSubmitting(true);
     try {
       const loggedInUser = await login(values);
-      router.push(loggedInUser.role === ROLES.ADMIN ? '/admin/users' : '/notes');
+      router.push(
+        loggedInUser.role === ROLES.ADMIN ? "/admin/users" : "/notes",
+      );
     } catch (error) {
-      setFormError(error instanceof ApiClientError ? error.message : 'Something went wrong. Please try again.');
+      setFormError(
+        error instanceof ApiClientError
+          ? error.message
+          : "Something went wrong. Please try again.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -64,7 +70,9 @@ function LoginForm() {
       <div>
         <h1 className="text-xl font-semibold">Log in</h1>
         {justRegistered ? (
-          <p className="mt-2 text-sm text-primary">Account created. You can now log in.</p>
+          <p className="mt-2 text-sm text-primary">
+            Account created. You can now log in.
+          </p>
         ) : null}
       </div>
 
@@ -96,7 +104,7 @@ function LoginForm() {
       </form>
 
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Don&apos;t have an account?{' '}
+        Don&apos;t have an account?{" "}
         <Link href="/register" className="font-medium text-primary">
           Sign up
         </Link>
